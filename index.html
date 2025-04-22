@@ -3,9 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Notex v1 - Notes App</title> <script src="https://cdn.tailwindcss.com"></script>
+    <title>Notex v1 - Notes App (Offline)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
     <script>
-      // Tailwind configuration
+      // Tailwind configuration (remains the same)
       tailwind.config = {
         darkMode: 'class',
         theme: {
@@ -235,7 +236,7 @@
                     <button class="format-button" data-command="bold" title="Bold">B</button>
                     <button class="format-button" data-command="italic" title="Italic">I</button>
                     <button class="format-button" data-command="underline" title="Underline">U</button>
-                </div>
+                    </div>
 
                 <div id="noteContent" contenteditable="true" class="flex-1 text-gray-900 dark:text-gray-100 transition-all duration-300 overflow-auto"></div>
 
@@ -247,6 +248,9 @@
                     <div id="tagsPreview" class="mt-2 flex flex-wrap transition-all duration-300">
                         </div>
                 </div>
+            </div>
+            <div id="noNoteSelected" class="flex-1 flex items-center justify-center text-gray-500 dark:text-gray-400 text-center hidden">
+                <p>Select a note from the list or create a new one.</p>
             </div>
         </main>
     </div>
@@ -269,12 +273,12 @@
                         <span class="toggle-slider"></span>
                     </label>
                 </div>
-
-                <hr class="border-gray-200 dark:border-gray-600 my-4"> <div class="text-center text-sm text-gray-500 dark:text-gray-400 space-y-1">
-                    <p>Notex version 1</p>
+                <hr class="border-gray-200 dark:border-gray-600 my-4">
+                <div class="text-center text-sm text-gray-500 dark:text-gray-400 space-y-1">
+                    <p>Notex version 1 (Offline Enabled)</p>
                     <p>Created by Himanshu pal</p>
                 </div>
-                 </div>
+            </div>
         </div>
     </div>
 
@@ -300,6 +304,7 @@
         const backBtn = document.getElementById('backBtn');
         const sidebarEl = document.getElementById('sidebar');
         const bodyEl = document.body;
+        const noNoteSelectedEl = document.getElementById('noNoteSelected'); // Get the placeholder element
 
         // --- State Variables ---
         let notes = [];
@@ -316,8 +321,25 @@
             loadNotes();
             renderNotesList();
             setupEventListeners();
-            checkInitialState();
+            checkInitialState(); // Check initial state after loading notes
+            registerServiceWorker(); // Register the service worker
         });
+
+        // --- Service Worker Registration ---
+        function registerServiceWorker() {
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('sw.js') // Path to your service worker file
+                    .then(registration => {
+                        console.log('Service Worker registered with scope:', registration.scope);
+                    })
+                    .catch(error => {
+                        console.error('Service Worker registration failed:', error);
+                    });
+            } else {
+                console.log('Service Worker not supported in this browser.');
+            }
+        }
+
 
         // --- Settings Management ---
         function loadSettings() {
@@ -341,72 +363,96 @@
             const savedNotes = localStorage.getItem('notesAppNotes');
             if (savedNotes) {
                 notes = JSON.parse(savedNotes);
+                // Sort notes by lastModified descending (most recent first)
+                notes.sort((a, b) => b.lastModified - a.lastModified);
             } else {
+                // Initialize with example notes if none exist
                 notes = [
-                    { id: Date.now() + 1, title: "Welcome Note", content: "<div>Start typing your notes here! Use the buttons for basic formatting. Drag notes in the sidebar to reorder.</div>", tags: ["welcome", "getting started"], lastModified: Date.now() },
-                    { id: Date.now() + 2, title: "Shopping List", content: "<div>- Milk</div><div>- Bread</div><div>- Eggs</div>", tags: ["personal", "todo"], lastModified: Date.now() - 86400000 }
+                    { id: Date.now() + 1, title: "Welcome Note", content: "<div>Start typing your notes here! Use the buttons for basic formatting. Drag notes in the sidebar to reorder. This app now works offline!</div>", tags: ["welcome", "getting started", "offline"], lastModified: Date.now() },
+                    { id: Date.now() + 2, title: "Shopping List", content: "<div>- Milk</div><div>- Bread</div><div>- Eggs</div>", tags: ["personal", "todo"], lastModified: Date.now() - 86400000 } // Example: 1 day old
                 ];
-                saveNotes();
+                saveNotes(); // Save the initial notes
             }
         }
         function saveNotes() {
+            // Ensure notes are sorted before saving
+            notes.sort((a, b) => b.lastModified - a.lastModified);
             localStorage.setItem('notesAppNotes', JSON.stringify(notes));
         }
         function createNewNote() {
-            saveCurrentNote();
+            saveCurrentNote(); // Save any changes to the currently open note first
             const newNote = {
                 id: Date.now(),
                 title: "Untitled Note",
-                content: "<div></div>",
+                content: "<div></div>", // Start with an empty div for consistent structure
                 tags: [],
                 lastModified: Date.now()
             };
-            notes.unshift(newNote);
-            saveNotes();
-            renderNotesList();
-            displayNote(newNote.id);
-            noteTitleInput.focus();
-            noteTitleInput.select();
-            enterFullscreen();
+            notes.unshift(newNote); // Add to the beginning of the array
+            saveNotes(); // Save immediately
+            renderNotesList(); // Update the list
+            displayNote(newNote.id); // Display the new note
+            noteTitleInput.focus(); // Focus the title input
+            noteTitleInput.select(); // Select the default title
+            enterFullscreen(); // Go to editor view on mobile/fullscreen
         }
+
         function deleteNote(id) {
             console.log("Attempting to delete note:", id);
             const deletedNoteIndex = notes.findIndex(note => note.id === id);
-            notes = notes.filter(note => note.id !== id);
-            saveNotes();
-            renderNotesList();
+            if (deletedNoteIndex === -1) {
+                console.warn("Note not found for deletion:", id);
+                return; // Exit if note not found
+            }
 
-            if (selectedNoteId === id) {
-                 console.log("Deleted note was the selected one. Selecting next.");
-                 let nextNoteToSelect = null;
-                 if (notes.length > 0) {
-                     const nextIndex = Math.min(deletedNoteIndex, notes.length - 1);
-                     nextNoteToSelect = notes[nextIndex];
-                     console.log("Next note to select:", nextNoteToSelect ? nextNoteToSelect.id : 'None');
-                 } else {
-                     console.log("No notes left after deletion.");
-                 }
-                 if (nextNoteToSelect) {
-                     displayNote(nextNoteToSelect.id);
-                 } else {
-                     displayNote(null);
-                 }
-             } else {
-                 console.log("Deleted note was not the selected one.");
-             }
+            notes = notes.filter(note => note.id !== id); // Remove the note
+            saveNotes(); // Save the updated notes array
+            renderNotesList(); // Re-render the list
+
+            // Logic to select the next note or show placeholder
+            if (selectedNoteId === id) { // If the deleted note was the one being viewed
+                console.log("Deleted note was the selected one. Selecting next.");
+                let nextNoteToSelect = null;
+                if (notes.length > 0) {
+                    // Try to select the note that was previously at the same index,
+                    // or the last one if the deleted note was the last.
+                    const nextIndex = Math.min(deletedNoteIndex, notes.length - 1);
+                    nextNoteToSelect = notes[nextIndex];
+                    console.log("Next note to select:", nextNoteToSelect ? nextNoteToSelect.id : 'None');
+                } else {
+                    console.log("No notes left after deletion.");
+                }
+
+                if (nextNoteToSelect) {
+                    displayNote(nextNoteToSelect.id); // Display the next note
+                } else {
+                    displayNote(null); // No notes left, display placeholder
+                }
+            } else {
+                console.log("Deleted note was not the selected one.");
+                // No need to change the displayed note if a different one was deleted
+            }
         }
+
 
         // --- Rendering ---
         function renderNotesList() {
-            notesListEl.innerHTML = '';
-            const searchTerm = searchInput.value.toLowerCase();
-            const filteredNotes = notes.filter(note =>
-                note.title.toLowerCase().includes(searchTerm) ||
-                (note.content && note.content.toLowerCase().includes(searchTerm)) || // Add check for content existence
-                note.tags.some(tag => tag.toLowerCase().includes(searchTerm))
-            );
+            notesListEl.innerHTML = ''; // Clear the current list
+            const searchTerm = searchInput.value.toLowerCase().trim();
 
-            if (filteredNotes.length === 0 && searchTerm) {
+            // Filter notes based on search term (title, content text, tags)
+            const filteredNotes = notes.filter(note => {
+                const contentText = document.createElement('div');
+                contentText.innerHTML = note.content || ''; // Handle potentially null/undefined content
+                return (
+                    note.title.toLowerCase().includes(searchTerm) ||
+                    contentText.textContent.toLowerCase().includes(searchTerm) ||
+                    note.tags.some(tag => tag.toLowerCase().includes(searchTerm))
+                );
+            });
+
+            // Display messages if no notes match or no notes exist
+             if (filteredNotes.length === 0 && searchTerm) {
                  notesListEl.innerHTML = '<p class="text-center text-gray-500 dark:text-gray-400 p-4">No notes match your search.</p>';
                  return;
              } else if (notes.length === 0) {
@@ -414,75 +460,94 @@
                  return;
              }
 
+            // Determine which notes to render (filtered or all)
             const notesToRender = searchTerm ? filteredNotes : notes;
+
+            // Create and append list items for each note
             notesToRender.forEach(note => {
                 const noteItem = document.createElement('div');
-                noteItem.classList.add('note-item', 'p-3', 'border-b', 'border-gray-200', 'dark:border-gray-700', 'hover:bg-gray-100', 'dark:hover:bg-gray-700', 'rounded-md', 'transition-all', 'duration-200');
+                noteItem.classList.add('note-item', 'p-3', 'border-b', 'border-gray-200', 'dark:border-gray-700', 'hover:bg-gray-100', 'dark:hover:bg-gray-700', 'rounded-md', 'transition-all', 'duration-200', 'relative'); // Added relative for potential future elements
                 noteItem.dataset.id = note.id;
-                noteItem.draggable = true;
+                noteItem.draggable = true; // Make item draggable
 
+                // Highlight the selected note
                 if (note.id === selectedNoteId) {
                     noteItem.classList.add('selected');
                 }
 
+                // Note Title
                 const title = document.createElement('h3');
-                title.classList.add('font-semibold', 'text-gray-800', 'dark:text-gray-100', 'truncate', 'pointer-events-none');
-                title.textContent = note.title || "Untitled Note";
+                title.classList.add('font-semibold', 'text-gray-800', 'dark:text-gray-100', 'truncate', 'pointer-events-none', 'mb-1'); // Added margin-bottom
+                title.textContent = note.title || "Untitled Note"; // Default title
 
-                const date = document.createElement('p');
-                date.classList.add('text-xs', 'text-gray-500', 'dark:text-gray-400', 'mt-1', 'pointer-events-none');
-                date.textContent = new Date(note.lastModified).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
-
+                // Note Content Preview
                 const preview = document.createElement('p');
-                preview.classList.add('text-sm', 'text-gray-600', 'dark:text-gray-300', 'mt-1', 'truncate', 'pointer-events-none');
-                // Safely create preview text
+                preview.classList.add('text-sm', 'text-gray-600', 'dark:text-gray-300', 'truncate', 'pointer-events-none', 'mb-1'); // Added margin-bottom
                 const tempDiv = document.createElement('div');
-                if (note.content) { // Check if content exists
-                   tempDiv.innerHTML = note.content;
-                   preview.textContent = tempDiv.textContent.substring(0, 50) + (tempDiv.textContent.length > 50 ? '...' : '');
-                } else {
-                   preview.textContent = ''; // Handle empty content
-                }
+                tempDiv.innerHTML = note.content || ''; // Handle empty content safely
+                const previewText = tempDiv.textContent.trim();
+                preview.textContent = previewText.substring(0, 60) + (previewText.length > 60 ? '...' : ''); // Slightly longer preview
+
+                // Last Modified Date
+                const date = document.createElement('p');
+                date.classList.add('text-xs', 'text-gray-500', 'dark:text-gray-400', 'pointer-events-none');
+                date.textContent = `Modified: ${new Date(note.lastModified).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}`;
 
 
                 noteItem.appendChild(title);
                 noteItem.appendChild(preview);
                 noteItem.appendChild(date);
 
+                // Click event to select and display the note
                 noteItem.addEventListener('click', () => {
-                    if (noteItem.classList.contains('dragging')) return;
-                    saveCurrentNote();
+                    if (noteItem.classList.contains('dragging')) return; // Don't select if dragging
+                    saveCurrentNote(); // Save current note before switching
                     displayNote(note.id);
-                    enterFullscreen();
+                    enterFullscreen(); // Switch to editor view on mobile/fullscreen
                 });
 
                 notesListEl.appendChild(noteItem);
             });
         }
         function displayNote(id) {
-            selectedNoteId = id;
+            selectedNoteId = id; // Update the globally selected ID
             const note = notes.find(n => n.id === id);
 
             if (note) {
+                // Show editor, hide placeholder
                 noteEditorEl.classList.remove('hidden');
+                noNoteSelectedEl.classList.add('hidden');
+
+                // Populate editor fields
                 noteTitleInput.value = note.title;
-                noteContentInput.innerHTML = note.content || ''; // Ensure content is at least empty string
+                noteContentInput.innerHTML = note.content || ''; // Ensure content is at least an empty string
                 noteTagsInput.value = note.tags.join(', ');
                 renderTagsPreview(note.tags);
-                updateFormatButtonStates();
+                updateFormatButtonStates(); // Update bold/italic/underline button states
+
             } else {
+                // No note selected (or note not found), hide editor, show placeholder
                 selectedNoteId = null;
                 noteEditorEl.classList.add('hidden');
-                exitFullscreen();
+                noNoteSelectedEl.classList.remove('hidden'); // Show the placeholder message
+                noNoteSelectedEl.classList.add('flex'); // Ensure it's displayed correctly
+
+                // Clear editor fields (optional, but good practice)
+                noteTitleInput.value = '';
+                noteContentInput.innerHTML = '';
+                noteTagsInput.value = '';
+                renderTagsPreview([]);
+
+                exitFullscreen(); // Exit fullscreen if no note is selected
             }
-            renderNotesList();
+            renderNotesList(); // Re-render the list to update the 'selected' state visually
         }
         function renderTagsPreview(tags) {
-            tagsPreviewEl.innerHTML = '';
+            tagsPreviewEl.innerHTML = ''; // Clear previous tags
             tags.forEach(tag => {
-                if (tag) {
+                if (tag) { // Ensure tag is not empty
                     const tagEl = document.createElement('span');
-                    tagEl.classList.add('tag');
+                    tagEl.classList.add('tag'); // Use the defined CSS class for tags
                     tagEl.textContent = tag;
                     tagsPreviewEl.appendChild(tagEl);
                 }
@@ -491,79 +556,117 @@
 
         // --- Saving and Debouncing ---
         function handleNoteChange() {
-            clearTimeout(debounceTimer);
+            clearTimeout(debounceTimer); // Clear existing timer
+            // Set a new timer to save after a short delay (e.g., 500ms)
             debounceTimer = setTimeout(() => {
-                const changed = saveCurrentNote();
+                const changed = saveCurrentNote(); // Save the note content
                 if (changed) {
+                     // If changes were made, update lastModified and re-render list
                      const note = notes.find(n => n.id === selectedNoteId);
                      if(note) {
-                        note.lastModified = Date.now();
-                        saveNotes();
-                        renderNotesList();
+                        note.lastModified = Date.now(); // Update timestamp
+                        saveNotes(); // Save all notes (including the updated timestamp and order)
+                        renderNotesList(); // Re-render the list to show updated date/order
                      }
                 }
-            }, 500);
+            }, 500); // Adjust debounce delay as needed
         }
         function saveCurrentNote() {
-             if (!selectedNoteId) return false;
+             if (!selectedNoteId) return false; // No note selected, nothing to save
              const note = notes.find(n => n.id === selectedNoteId);
-             let changed = false;
-             if (note) {
-                 const newTitle = noteTitleInput.value;
-                 const newContent = noteContentInput.innerHTML;
-                 const newTags = noteTagsInput.value.split(',').map(t => t.trim()).filter(t => t !== '');
+             let changed = false; // Flag to track if any changes occurred
 
-                 if (note.title !== newTitle) { note.title = newTitle; changed = true; }
-                 if (note.content !== newContent) { note.content = newContent; changed = true; }
-                 if (JSON.stringify(note.tags) !== JSON.stringify(newTags)) {
-                     note.tags = newTags; changed = true;
+             if (note) {
+                 // Get current values from the editor fields
+                 const newTitle = noteTitleInput.value.trim(); // Trim whitespace
+                 const newContent = noteContentInput.innerHTML; // Get HTML content
+                 // Process tags: split by comma, trim whitespace, filter out empty strings
+                 const newTags = noteTagsInput.value.split(',')
+                                     .map(t => t.trim())
+                                     .filter(t => t !== '');
+
+                 // Compare with stored values and update if different
+                 if (note.title !== newTitle) {
+                     note.title = newTitle;
+                     changed = true;
+                     console.log(`Note ${note.id}: Title changed`);
                  }
+                 if (note.content !== newContent) {
+                     note.content = newContent;
+                     changed = true;
+                     console.log(`Note ${note.id}: Content changed`);
+                 }
+                 // Compare tags array (convert to JSON for simple comparison)
+                 if (JSON.stringify(note.tags) !== JSON.stringify(newTags)) {
+                     note.tags = newTags;
+                     changed = true;
+                     console.log(`Note ${note.id}: Tags changed`);
+                 }
+
                  if(changed) {
-                    console.log("Changes detected for note:", note.id);
+                    console.log("Changes detected and saved for note:", note.id);
+                    // Note: saveNotes() is called in handleNoteChange after this returns true
                  }
              }
-             return changed;
+             return changed; // Return whether changes were made
         }
 
-        // --- Fullscreen Mode Logic ---
+        // --- Fullscreen Mode Logic (Mobile Focus) ---
         function enterFullscreen() {
-            if (!bodyEl.classList.contains('editor-fullscreen')) {
+            // Only enter fullscreen if not already in it AND screen is 'mobile' size
+            const isMobile = window.innerWidth < 768; // md breakpoint from Tailwind
+            if (isMobile && !bodyEl.classList.contains('editor-fullscreen')) {
                 bodyEl.classList.add('editor-fullscreen');
                 isFullscreen = true;
-                window.dispatchEvent(new Event('resize'));
+                console.log("Entered fullscreen editor view");
+                window.dispatchEvent(new Event('resize')); // Trigger resize event if needed by layout
+            } else if (!isMobile) {
+                 console.log("Desktop view: Not entering fullscreen mode.");
             }
         }
         function exitFullscreen() {
             if (bodyEl.classList.contains('editor-fullscreen')) {
-                 handleNoteChange(); // Trigger save before exit
-                bodyEl.classList.remove('editor-fullscreen');
-                isFullscreen = false;
-                window.dispatchEvent(new Event('resize'));
+                // Save note before exiting fullscreen (important!)
+                 handleNoteChange(); // This will trigger saveCurrentNote via debounce
+                 // Use a small timeout to ensure save completes before class change affects layout/focus
+                 setTimeout(() => {
+                    bodyEl.classList.remove('editor-fullscreen');
+                    isFullscreen = false;
+                    console.log("Exited fullscreen editor view");
+                    window.dispatchEvent(new Event('resize')); // Trigger resize event
+                 }, 100); // Short delay
             }
         }
 
+
         // --- Formatting ---
         function applyFormat(command) {
+            // Execute the formatting command (e.g., 'bold', 'italic')
             document.execCommand(command, false, null);
-            noteContentInput.focus();
-            updateFormatButtonStates();
-            handleNoteChange();
+            noteContentInput.focus(); // Keep focus in the editor
+            updateFormatButtonStates(); // Update button appearance
+            handleNoteChange(); // Trigger save since content changed
         }
         function updateFormatButtonStates() {
+             // Check the state of each format command and update button styles
              formatButtons.forEach(button => {
                  const command = button.dataset.command;
+                 // Ensure the command is supported and the editor has focus
                  if (document.queryCommandSupported(command) && document.activeElement === noteContentInput) {
                      try {
+                         // Check if the command is currently active at the cursor position
                          if (document.queryCommandState(command)) {
-                             button.classList.add('active');
+                             button.classList.add('active'); // Add 'active' class
                          } else {
-                             button.classList.remove('active');
+                             button.classList.remove('active'); // Remove 'active' class
                          }
                      } catch (e) {
+                         // Log errors if queryCommandState fails (can happen in some edge cases)
                          console.error("Error checking command state:", command, e);
                          button.classList.remove('active');
                      }
                  } else {
+                      // Remove 'active' class if editor not focused or command not supported
                       button.classList.remove('active');
                  }
              });
@@ -571,137 +674,228 @@
 
         // --- Drag and Drop Handlers ---
         function handleDragStart(e) {
+            // Only allow dragging on actual note items
             if (e.target.classList.contains('note-item')) {
-                draggedItemId = e.target.dataset.id;
-                e.dataTransfer.effectAllowed = 'move';
-                e.target.classList.add('dragging');
+                draggedItemId = e.target.dataset.id; // Store the ID of the dragged item
+                e.dataTransfer.effectAllowed = 'move'; // Indicate the type of drag operation
+                // Add visual feedback class after a tiny delay to ensure it's applied
+                setTimeout(() => e.target.classList.add('dragging'), 0);
+                console.log("Drag Start:", draggedItemId);
             } else {
-                e.preventDefault();
+                e.preventDefault(); // Prevent dragging other elements within the list
             }
         }
         function handleDragOver(e) {
-            e.preventDefault();
-            e.dataTransfer.dropEffect = 'move';
-            const targetItem = e.target.closest('.note-item');
+            e.preventDefault(); // Necessary to allow dropping
+            e.dataTransfer.dropEffect = 'move'; // Indicate this is a valid drop target
+
+            const targetItem = e.target.closest('.note-item'); // Find the note item being hovered over
             const list = notesListEl;
+
+            // Clear previous drag-over indicators
             list.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+
+            // Add indicator to the target item if it's a valid drop target (not the item being dragged)
             if (targetItem && targetItem.dataset.id !== draggedItemId) {
-                targetItem.classList.add('drag-over');
+                 // Determine if dragging over top or bottom half (optional, for more precise indicator)
+                 // const rect = targetItem.getBoundingClientRect();
+                 // const isOverTopHalf = e.clientY < rect.top + rect.height / 2;
+                 // Add class based on position, e.g., 'drag-over-top' or 'drag-over-bottom'
+                 // For simplicity, just adding 'drag-over' for a top border indicator
+                 targetItem.classList.add('drag-over');
             }
         }
         function handleDrop(e) {
-            e.preventDefault();
+            e.preventDefault(); // Prevent default drop behavior (like opening links)
             const targetItem = e.target.closest('.note-item');
-            const droppedOnId = targetItem ? targetItem.dataset.id : null;
+            const droppedOnId = targetItem ? targetItem.dataset.id : null; // Get ID of the item dropped onto
+
+            // Clear visual indicators
             notesListEl.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
 
+            console.log("Drop:", draggedItemId, "onto", droppedOnId);
+
+            // Perform the reorder if a valid drop occurred
             if (draggedItemId && droppedOnId && draggedItemId !== droppedOnId) {
                 const draggedIndex = notes.findIndex(note => note.id == draggedItemId);
-                const targetIndex = notes.findIndex(note => note.id == droppedOnId);
+                let targetIndex = notes.findIndex(note => note.id == droppedOnId);
+
                 if (draggedIndex !== -1 && targetIndex !== -1) {
+                    // Remove the dragged note from its original position
                     const [draggedNote] = notes.splice(draggedIndex, 1);
-                    notes.splice(targetIndex, 0, draggedNote);
-                    saveNotes();
-                    renderNotesList();
+
+                    // Adjust target index if the dragged item was removed from before the target
+                    // This calculation might need adjustment based on how splice affects indices.
+                    // Re-finding the target index after splice is safer:
+                    targetIndex = notes.findIndex(note => note.id == droppedOnId);
+                    if (targetIndex === -1) { // Should not happen if logic is correct
+                         console.error("Target index not found after splice");
+                         // Put the note back at the end as a fallback
+                         notes.push(draggedNote);
+                    } else {
+                         // Insert the dragged note at the target index
+                         notes.splice(targetIndex, 0, draggedNote);
+                    }
+
+
+                    saveNotes(); // Save the new order
+                    renderNotesList(); // Re-render the list with the new order
+                    console.log("Notes reordered and saved.");
+                } else {
+                     console.warn("Drag/Drop failed: Index not found.", draggedIndex, targetIndex);
                 }
+            } else if (draggedItemId && !droppedOnId) {
+                 // Handle dropping onto the list but not on a specific item (e.g., drop at the end)
+                 // Optional: Implement logic to move to the end if dropped in empty space
+                 console.log("Dropped in empty space - no reorder.");
             }
-             handleDragEnd();
+
+            handleDragEnd(); // Clean up drag state
         }
-        function handleDragEnd(e) {
+        function handleDragEnd() {
+            // Use setTimeout to ensure cleanup happens after drop event processing
             setTimeout(() => {
                 const draggingItem = notesListEl.querySelector('.dragging');
-                if (draggingItem) draggingItem.classList.remove('dragging');
+                if (draggingItem) {
+                    draggingItem.classList.remove('dragging'); // Remove visual feedback
+                }
+                // Ensure all drag-over indicators are removed
                 notesListEl.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
-                draggedItemId = null;
+                draggedItemId = null; // Reset the dragged item ID
+                console.log("Drag End");
             }, 0);
         }
 
+
         // --- Event Listeners Setup ---
         function setupEventListeners() {
+            // New Note Button
             newNoteBtn.addEventListener('click', createNewNote);
+
+            // Search Input & Clear Button
             searchInput.addEventListener('input', () => {
-                renderNotesList();
-                clearSearchBtn.style.display = searchInput.value ? 'inline-block' : 'none';
+                renderNotesList(); // Filter list as user types
+                clearSearchBtn.style.display = searchInput.value ? 'inline-block' : 'none'; // Show/hide clear button
             });
             clearSearchBtn.addEventListener('click', () => {
-                searchInput.value = '';
-                clearSearchBtn.style.display = 'none';
-                renderNotesList();
+                searchInput.value = ''; // Clear input
+                clearSearchBtn.style.display = 'none'; // Hide button
+                renderNotesList(); // Render full list
+                searchInput.focus(); // Keep focus on search
             });
+
+            // Editor Inputs (Title, Content, Tags) - Trigger save on change
             noteTitleInput.addEventListener('input', handleNoteChange);
             noteContentInput.addEventListener('input', handleNoteChange);
             noteTagsInput.addEventListener('input', () => {
+                // Update tags preview immediately as user types
                 const tags = noteTagsInput.value.split(',').map(t => t.trim()).filter(t => t !== '');
                 renderTagsPreview(tags);
-                handleNoteChange();
+                handleNoteChange(); // Trigger save for tag changes
             });
+
+            // Update format button states on editor interaction
             noteContentInput.addEventListener('keyup', updateFormatButtonStates);
-            noteContentInput.addEventListener('mouseup', updateFormatButtonStates);
+            noteContentInput.addEventListener('mouseup', updateFormatButtonStates); // Selection change
             noteContentInput.addEventListener('focus', updateFormatButtonStates);
             noteContentInput.addEventListener('blur', () => {
+                 // Save note on blur (losing focus)
                  handleNoteChange();
+                 // Delay updating button states slightly on blur
                  setTimeout(updateFormatButtonStates, 100);
             });
 
+            // Delete Note Button
             deleteNoteBtn.addEventListener('click', () => {
                 if (selectedNoteId) {
-                    if (confirm('Are you sure you want to delete this note?')) {
+                    // Confirmation dialog
+                    if (confirm(`Are you sure you want to delete "${notes.find(n=>n.id===selectedNoteId)?.title || 'this note'}"?`)) {
                         deleteNote(selectedNoteId);
                     }
                 } else {
-                    alert("Please select a note to delete.");
+                    // Should ideally not be possible if button is only visible when note selected
+                    alert("No note selected to delete.");
                 }
             });
 
+            // Format Buttons
             formatButtons.forEach(button => {
                 button.addEventListener('click', (e) => {
-                    e.preventDefault();
+                    e.preventDefault(); // Prevent button click from taking focus away from editor
                     applyFormat(button.dataset.command);
                 });
             });
+
+            // Settings Modal
             settingsBtn.addEventListener('click', () => settingsModal.classList.add('flex'));
             closeSettingsBtn.addEventListener('click', () => settingsModal.classList.remove('flex'));
             settingsModal.addEventListener('click', (e) => {
-                if (e.target === settingsModal) settingsModal.classList.remove('flex');
+                // Close modal if clicking on the background overlay
+                if (e.target === settingsModal) {
+                    settingsModal.classList.remove('flex');
+                }
             });
             darkModeToggle.addEventListener('change', () => {
                 settings.darkMode = darkModeToggle.checked;
-                applySettings();
-                saveSettings();
+                applySettings(); // Apply theme immediately
+                saveSettings(); // Save preference
             });
+
+            // Back Button (Mobile/Fullscreen)
             backBtn.addEventListener('click', exitFullscreen);
+
+            // Escape Key to Exit Fullscreen
             document.addEventListener('keydown', (e) => {
                 if (e.key === 'Escape' && bodyEl.classList.contains('editor-fullscreen')) {
                     exitFullscreen();
                 }
             });
+
+            // Save note before page unload (important fallback)
             window.addEventListener('beforeunload', () => {
-                 clearTimeout(debounceTimer);
+                 clearTimeout(debounceTimer); // Clear any pending saves
+                 // Perform immediate save if a note is selected
                  const changed = saveCurrentNote();
                  if (changed) {
+                     // Optionally update lastModified one last time
                      const note = notes.find(n => n.id === selectedNoteId);
                      if(note) note.lastModified = Date.now();
+                     // Save synchronously (localStorage is synchronous)
                      saveNotes();
+                     console.log("Saved note on beforeunload");
                  }
             });
+
+            // Save on blur for title and tags as well (redundant but safe)
             noteTitleInput.addEventListener('blur', handleNoteChange);
             noteTagsInput.addEventListener('blur', handleNoteChange);
 
-            // Drag and Drop Listeners
+            // Drag and Drop Listeners for the Notes List
             notesListEl.addEventListener('dragstart', handleDragStart);
             notesListEl.addEventListener('dragover', handleDragOver);
             notesListEl.addEventListener('drop', handleDrop);
             notesListEl.addEventListener('dragend', handleDragEnd);
+            // Prevent default drag/drop behavior on the body to avoid conflicts
             document.body.addEventListener('dragover', e => e.preventDefault());
             document.body.addEventListener('drop', e => e.preventDefault());
         }
 
         // --- Utility Functions ---
         function checkInitialState() {
+            // Display the first note if available, otherwise show the placeholder
             if (notes.length > 0) {
-                displayNote(notes[0].id);
+                displayNote(notes[0].id); // Display the most recently modified note
             } else {
-                 displayNote(null);
+                 displayNote(null); // Display the placeholder message
+            }
+            // Ensure the correct view (fullscreen or side-by-side) is set based on screen size
+            const isMobile = window.innerWidth < 768;
+            if (!isMobile && bodyEl.classList.contains('editor-fullscreen')) {
+                 // If on desktop but somehow stuck in fullscreen, exit it
+                 exitFullscreen();
+            } else if (isMobile && selectedNoteId && !bodyEl.classList.contains('editor-fullscreen')) {
+                 // If on mobile with a note selected, ensure fullscreen mode is active
+                 // enterFullscreen(); // Decided against forcing fullscreen on initial load
             }
         }
 
