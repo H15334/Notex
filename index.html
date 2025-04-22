@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Notex v1 - Notes App (Offline)</title>
+    <title>Notex v1.1 - Notes App</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
       // Tailwind configuration - Added font families
@@ -20,16 +20,21 @@
               'width': 'width',
               'height': 'height',
               'spacing': 'margin, padding',
+              'opacity': 'opacity', // Added opacity for loading screen fade
             },
             keyframes: {
               'fade-in': { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
+              'fade-out': { '0%': { opacity: '1' }, '100%': { opacity: '0' } }, // Added fade-out
               'slide-up': { '0%': { transform: 'translateY(20px)', opacity: '0' }, '100%': { transform: 'translateY(0)', opacity: '1' } },
-              'pulse': { '0%, 100%': { opacity: '1' }, '50%': { opacity: '0.5' } }
+              'pulse': { '0%, 100%': { opacity: '1' }, '50%': { opacity: '0.5' } },
+               'spin': { 'to': { transform: 'rotate(360deg)' } } // Added spin for loader
             },
             animation: {
               'fade-in': 'fade-in 0.3s ease-out',
+              'fade-out': 'fade-out 0.5s ease-out forwards', // Added fade-out animation
               'slide-up': 'slide-up 0.3s ease-out',
               'pulse': 'pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+              'spin': 'spin 1s linear infinite', // Added spin animation
             },
           },
         },
@@ -229,6 +234,47 @@
             box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.3);
         }
 
+       /* --- Loading Screen Styles --- */
+       #loadingScreen {
+           position: fixed;
+           inset: 0; /* top, right, bottom, left = 0 */
+           background-color: #f3f4f6; /* Light gray background */
+           z-index: 9999; /* Ensure it's on top */
+           display: flex;
+           flex-direction: column; /* Stack items vertically */
+           align-items: center;
+           justify-content: center;
+           transition: opacity 0.5s ease-out; /* For fade-out */
+           pointer-events: none; /* Allow clicks through when fading */
+       }
+       .dark #loadingScreen {
+           background-color: #1f2937; /* Dark background */
+       }
+       #loadingScreen.hidden {
+           opacity: 0;
+       }
+       .loader {
+           border: 4px solid #e5e7eb; /* Light gray border */
+           border-top-color: #3b82f6; /* Blue top border */
+           border-radius: 50%;
+           width: 40px;
+           height: 40px;
+           animation: spin 1s linear infinite;
+           margin-bottom: 1rem; /* Space between spinner and text */
+       }
+       .dark .loader {
+           border-color: #4b5563; /* Dark border */
+           border-top-color: #60a5fa; /* Lighter blue for dark mode */
+       }
+       #loadingText {
+           font-size: 1.1rem;
+           color: #4b5563; /* Dark gray text */
+           font-weight: 500;
+       }
+       .dark #loadingText {
+           color: #d1d5db; /* Light gray text for dark mode */
+       }
+
 
     </style>
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -236,6 +282,11 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body class="bg-gray-100 dark:bg-gray-900 font-sans flex flex-col h-screen transition-colors duration-300">
+
+    <div id="loadingScreen">
+        <div class="loader"></div>
+        <p id="loadingText">Loading Notex...</p>
+    </div>
 
     <header class="bg-blue-600 dark:bg-blue-800 text-white p-4 shadow-md flex justify-between items-center transition-all duration-300 z-10">
         <h1 class="text-2xl font-bold animate-slide-up">My Notes</h1>
@@ -325,7 +376,7 @@
 
                 <hr class="border-gray-200 dark:border-gray-600 my-4">
                 <div class="text-center text-sm text-gray-500 dark:text-gray-400 space-y-1">
-                    <p>Notex version 1 (Offline Enabled)</p>
+                    <p>Notex v1.1</p>
                     <p>Created by Himanshu pal</p>
                 </div>
             </div>
@@ -358,6 +409,7 @@
         const sidebarEl = document.getElementById('sidebar');
         const bodyEl = document.body;
         const noNoteSelectedEl = document.getElementById('noNoteSelected');
+        const loadingScreen = document.getElementById('loadingScreen'); // Added loading screen element
 
         // --- SVG Icons ---
         const moonIconSVG = `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>`;
@@ -378,14 +430,56 @@
 
         // --- Initialization ---
         document.addEventListener('DOMContentLoaded', () => {
+            // Initialize the app
+            initializeApp();
+        });
+
+        // --- App Initialization Function ---
+        async function initializeApp() {
+            // Show loading screen immediately
+            showLoadingScreen();
+
+            // Load settings and apply them (especially dark mode early)
             loadSettings();
-            applySettings(); // Apply all loaded settings
-            loadNotes();
+            applySettings();
+
+            // Load notes (can be async if needed in the future)
+            await loadNotes(); // Make loadNotes async if it involves fetching
+
+            // Render the UI
             renderNotesList();
             setupEventListeners();
             checkInitialState();
             registerServiceWorker();
-        });
+
+            // Hide loading screen after a short delay to ensure rendering
+            // Use requestAnimationFrame for smoother transition
+            requestAnimationFrame(() => {
+                setTimeout(hideLoadingScreen, 100); // Small delay
+            });
+        }
+
+        // --- Loading Screen Functions ---
+        function showLoadingScreen() {
+            if (loadingScreen) {
+                loadingScreen.classList.remove('hidden', 'animate-fade-out');
+                // Ensure it's visible and pointer events are active if needed during loading
+                loadingScreen.style.opacity = '1';
+                loadingScreen.style.pointerEvents = 'auto';
+            }
+        }
+
+        function hideLoadingScreen() {
+            if (loadingScreen) {
+                loadingScreen.classList.add('animate-fade-out');
+                // After animation, hide it completely and disable pointer events
+                loadingScreen.addEventListener('animationend', () => {
+                    loadingScreen.classList.add('hidden');
+                    loadingScreen.style.pointerEvents = 'none';
+                }, { once: true }); // Ensure listener runs only once
+            }
+        }
+
 
         // --- Service Worker Registration ---
         function registerServiceWorker() {
@@ -434,16 +528,24 @@
         }
 
         // --- Notes Management (loadNotes, saveNotes, createNewNote, deleteNote remain the same) ---
-        function loadNotes() {
-            const savedNotes = localStorage.getItem('notesAppNotes');
-            if (savedNotes) {
-                notes = JSON.parse(savedNotes);
-                notes.sort((a, b) => b.lastModified - a.lastModified);
-            } else {
-                notes = [ { id: Date.now() + 1, title: "Welcome Note", content: "<div>Start typing your notes here! Use the buttons for basic formatting. Drag notes in the sidebar to reorder. This app now works offline!</div>", tags: ["welcome", "getting started", "offline"], lastModified: Date.now() }, { id: Date.now() + 2, title: "Shopping List", content: '<ul class="checklist"><li><input type="checkbox"><span contenteditable="true"> Milk</span></li><li><input type="checkbox" checked><span contenteditable="true" style="text-decoration: line-through; opacity: 0.6;"> Bread (Bought)</span></li><li><input type="checkbox"><span contenteditable="true"> Eggs</span></li></ul><div><br></div><div>Remember reusable bags!</div>', tags: ["personal", "todo"], lastModified: Date.now() - 86400000 } ];
-                saveNotes();
-            }
+        // Make loadNotes async in case future versions need async operations
+        async function loadNotes() {
+            return new Promise(resolve => {
+                const savedNotes = localStorage.getItem('notesAppNotes');
+                if (savedNotes) {
+                    notes = JSON.parse(savedNotes);
+                    notes.sort((a, b) => b.lastModified - a.lastModified);
+                } else {
+                    notes = [
+                        { id: Date.now() + 1, title: "Welcome to Notex v1.1!", content: "<div>Start typing your notes here! Use the buttons for basic formatting. Drag notes in the sidebar to reorder. Enjoy the new loading screen!</div>", tags: ["welcome", "getting started", "update"], lastModified: Date.now() },
+                        { id: Date.now() + 2, title: "Shopping List", content: '<ul class="checklist"><li><input type="checkbox"><span contenteditable="true"> Milk</span></li><li><input type="checkbox" checked><span contenteditable="true" style="text-decoration: line-through; opacity: 0.6;"> Bread (Bought)</span></li><li><input type="checkbox"><span contenteditable="true"> Eggs</span></li></ul><div><br></div><div>Remember reusable bags!</div>', tags: ["personal", "todo"], lastModified: Date.now() - 86400000 }
+                    ];
+                    saveNotes(); // Save default notes if none exist
+                }
+                resolve(); // Resolve the promise once notes are loaded/created
+            });
         }
+
         function saveNotes() {
             notes.sort((a, b) => b.lastModified - a.lastModified);
             localStorage.setItem('notesAppNotes', JSON.stringify(notes));
@@ -499,7 +601,7 @@
                 noteTitleInput.value = ''; noteContentInput.innerHTML = ''; noteTagsInput.value = ''; renderTagsPreview([]);
                 exitFullscreen();
             }
-            renderNotesList();
+            renderNotesList(); // Re-render list to update selection highlight
         }
         function renderTagsPreview(tags) {
             tagsPreviewEl.innerHTML = '';
@@ -616,9 +718,16 @@
 
         // --- Utility Functions ---
         function checkInitialState() {
-            if (notes.length > 0) displayNote(notes[0].id); else displayNote(null);
+            // Select the first note if available, otherwise show placeholder
+            if (notes.length > 0) {
+                displayNote(notes[0].id);
+            } else {
+                displayNote(null); // This handles showing the 'noNoteSelected' message
+            }
             const isMobile = window.innerWidth < 768;
-            if (!isMobile && bodyEl.classList.contains('editor-fullscreen')) exitFullscreen();
+            if (!isMobile && bodyEl.classList.contains('editor-fullscreen')) {
+                exitFullscreen(); // Exit fullscreen on desktop if it was somehow left active
+            }
         }
 
     </script>
